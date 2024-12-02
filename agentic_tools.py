@@ -1286,9 +1286,6 @@ def run_workflow(puzzle_setup) -> None:
             logger.debug(f"\nstate: {workflow_graph.get_state(runtime_config)}")
             pass
 
-    print("\n\nFINAL PUZZLE STATE:")
-    pp.pprint(chunk)
-
     return chunk["recommendation_correct_groups"]
 
 
@@ -1339,13 +1336,22 @@ if __name__ == "__main__":
 
     print(f"Number of prompts: {len(puzzle_setups)}")
 
+    found_groups_list = []
     for puzzle_setup in puzzle_setups[:5]:
-        print(f"\n{puzzle_setup}")
+        print(f"\n\n{puzzle_setup}")
         print(f"\tpuzzle_words: {puzzle_setup['words']}")
         for s in puzzle_setup["solution"]["groups"]:
             print(f"\t{s}")
         found_groups = run_workflow(puzzle_setup)
-        print(f"\tFound Groups: {found_groups}")
-        print(f"\tExpected Groups:")
+        found_groups_list.append(found_groups)
+        print(f"\n\tSolver Found Groups:\n")
+        for fg in found_groups:
+            print(f"\t{fg}")
+        print(f"\n\tExpected Groups:")
         for s in puzzle_setup["solution"]["groups"]:
             print(f"\t{s}")
+
+    print("\nAll Found Groups:")
+    for i, found_groups in enumerate(found_groups_list):
+        for found_group in found_groups:
+            print(f"Group {i}, {found_group}")
