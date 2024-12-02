@@ -233,7 +233,7 @@ def apply_recommendation(state: PuzzleState) -> PuzzleState:
         state["found_count"] += 1
         state["recommendation_correct_groups"].append(state["recommended_words"])
 
-    elif checker_response in ["one-away", "incorrect"]:
+    elif checker_response in ["one_away", "incorrect"]:
         invalid_group = state["recommended_words"]
         invalid_group_id = compute_group_id(invalid_group)
         state["invalid_connections"].append((invalid_group_id, invalid_group))
@@ -242,30 +242,40 @@ def apply_recommendation(state: PuzzleState) -> PuzzleState:
 
         if state["mistake_count"] < MAX_ERRORS:
             match checker_response:
-                case "one-away":
+                case "one_away":
                     print(
                         f"Recommendation {sorted(state['recommended_words'])} is incorrect, one away from correct"
                     )
+                    one_away_group_recommendation = None
 
-                    # perform one-away analysis
-                    one_away_group_recommendation = one_away_analyzer(
-                        state, invalid_group, state["words_remaining"]
-                    )
-
-                    # check if one_away_group_recommendation is a prior mistake
-                    if one_away_group_recommendation:
-                        one_away_group_id = compute_group_id(
-                            one_away_group_recommendation.words
+                    if state["current_tool"] == "embedvec_recommender":
+                        print(
+                            "Changing the recommender from 'embedvec_recommender' to 'llm_recommender'"
                         )
-                        if one_away_group_id in set(
-                            x[0] for x in state["invalid_connections"]
-                        ):
-                            print(f"one_away_group_recommendation is a prior mistake")
-                            one_away_group_recommendation = None
-                        else:
-                            print(
-                                f"one_away_group_recommendation is a new recommendation"
+                        state["current_tool"] = "llm_recommender"
+                    else:
+
+                        # perform one-away analysis
+                        one_away_group_recommendation = one_away_analyzer(
+                            state, invalid_group, state["words_remaining"]
+                        )
+
+                        # check if one_away_group_recommendation is a prior mistake
+                        if one_away_group_recommendation:
+                            one_away_group_id = compute_group_id(
+                                one_away_group_recommendation.words
                             )
+                            if one_away_group_id in set(
+                                x[0] for x in state["invalid_connections"]
+                            ):
+                                print(
+                                    f"one_away_group_recommendation is a prior mistake"
+                                )
+                                one_away_group_recommendation = None
+                            else:
+                                print(
+                                    f"one_away_group_recommendation is a new recommendation"
+                                )
 
                 case "incorrect":
                     print(
@@ -293,7 +303,7 @@ def apply_recommendation(state: PuzzleState) -> PuzzleState:
 
         state["tool_status"] = "puzzle_completed"
 
-    elif checker_response == "one-away":
+    elif checker_response == "one_away":
         if one_away_group_recommendation:
             print(f"using one_away_group_recommendation")
             state["recommended_words"] = one_away_group_recommendation.words
@@ -1113,6 +1123,7 @@ def one_away_analyzer(
         anchor_words = "\n\n" + ", ".join(anchor_list)
         prompt = [SystemMessage(ANCHOR_WORDS_SYSTEM_PROMPT), HumanMessage(anchor_words)]
         response = chat_with_llm(prompt)
+        response = json.loads(response.content)
 
         logger.info(f"\n>>>Anchor Words: {anchor_list}")
         logger.info(response)
@@ -1327,7 +1338,7 @@ if __name__ == "__main__":
 
     print(f"Number of prompts: {len(puzzle_setups)}")
 
-    for puzzle_setup in puzzle_setups[:3]:
+    for puzzle_setup in puzzle_setups[2:3]:
         print(f"\n{puzzle_setup}")
         print(f"\tpuzzle_words: {puzzle_setup['words']}")
         for s in puzzle_setup["solution"]["groups"]:
