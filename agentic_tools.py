@@ -199,232 +199,6 @@ def extract_words_from_image(image_fp: str) -> List[str]:
 KEY_PUZZLE_STATE_FIELDS = ["puzzle_status", "tool_status", "current_tool"]
 
 
-def run_planner(state: PuzzleState) -> PuzzleState:
-    logger.info("Entering run_planner:")
-    logger.debug(f"\nEntering run_planner State: {pp.pformat(state)}")
-
-    if state["workflow_instructions"] is None:
-        # read in the workflow specification
-        # TODO: support specifying the workflow specification file path in config
-        workflow_spec_fp = "src/agent/embedvec_workflow_specification.md"
-        with open(workflow_spec_fp, "r") as f:
-            state["workflow_instructions"] = f.read()
-
-        logger.debug(f"Workflow Specification: {state['workflow_instructions']}")
-
-    # workflow instructions
-    instructions = HumanMessage(state["workflow_instructions"])
-    logger.debug(f"\nWorkflow instructions:\n{instructions.content}")
-
-    # convert state to json string
-    relevant_state = {k: state[k] for k in KEY_PUZZLE_STATE_FIELDS}
-    puzzle_state = "\npuzzle state:\n" + json.dumps(relevant_state)
-
-    # wrap the state in a human message
-    puzzle_state = HumanMessage(puzzle_state)
-    logger.info(f"\nState for lmm: {puzzle_state.content}")
-
-    # get next action from llm
-    next_action = ask_llm_for_next_step(
-        instructions, puzzle_state, model="gpt-3.5-turbo", temperature=0
-    )
-
-    logger.info(f"\nNext action from llm: {next_action.content}")
-
-    state["tool_to_use"] = json.loads(next_action.content)["tool"]
-
-    logger.info("Exiting run_planner:")
-    logger.debug(f"\nExiting run_planner State: {pp.pformat(state)}")
-    return state
-
-
-def determine_next_action(state: PuzzleState) -> str:
-    logger.info("Entering determine_next_action:")
-    logger.debug(f"\nEntering determine_next_action State: {pp.pformat(state)}")
-
-    tool_to_use = state["tool_to_use"]
-
-    if tool_to_use == "ABORT":
-        raise ValueError("LLM returned abort")
-    elif tool_to_use == "END":
-        return END
-    else:
-        return tool_to_use
-
-
-HUMAN_MESSAGE_BASE = """
-    From the following candidate list of words identify a group of four words that are connected by a common word association, theme, concept, or category, and describe the connection.      
-    """
-
-
-def get_llm_recommendation(state: PuzzleState) -> PuzzleState:
-    logger.info("Entering get_recommendation")
-    logger.debug(f"Entering get_recommendation State: {pp.pformat(state)}")
-
-    state["current_tool"] = "llm_recommender"
-    print(f"\nENTERED {state['current_tool'].upper()}")
-    print(
-        f"found count: {state['found_count']}, mistake_count: {state['mistake_count']}"
-    )
-
-    # build prompt for llm
-    prompt = HUMAN_MESSAGE_BASE
-
-    attempt_count = 0
-    while True:
-        attempt_count += 1
-        if attempt_count > RETRY_LIMIT:
-            break
-        print(f"attempt_count: {attempt_count}")
-        prompt = HUMAN_MESSAGE_BASE
-        # scramble the remaining words for more robust group selection
-        if np.random.uniform() < 0.5:
-            random.shuffle(state["words_remaining"])
-        else:
-            state["words_remaining"].reverse()
-        print(f"words_remaining: {state['words_remaining']}")
-        prompt += f"candidate list: {', '.join(state['words_remaining'])}\n"
-
-        prompt = HumanMessage(prompt)
-
-        logger.info(f"\nPrompt for llm: {prompt.content}")
-
-        # get recommendation from llm
-        llm_response = ask_llm_for_solution(
-            prompt, temperature=state["llm_temperature"]
-        )
-
-        llm_response_json = json.loads(llm_response.content)
-        if isinstance(llm_response_json, list):
-            logger.debug(f"\nLLM response is list")
-            recommended_words = llm_response_json[0]["words"]
-            recommended_connection = llm_response_json[0]["connection"]
-        else:
-            logger.debug(f"\nLLM response is dict")
-            recommended_words = llm_response_json["words"]
-            recommended_connection = llm_response_json["connection"]
-
-        if compute_group_id(recommended_words) not in set(
-            x[0] for x in state["invalid_connections"]
-        ):
-            break
-        else:
-            print(
-                f"\nrepeat invalid group detected: group_id {compute_group_id(recommended_words)}, recommendation: {sorted(recommended_words)}"
-            )
-
-    state["recommended_words"] = sorted(recommended_words)
-    state["recommended_connection"] = recommended_connection
-
-    if attempt_count <= RETRY_LIMIT:
-        state["tool_status"] = "have_recommendation"
-    else:
-        print(f"Failed to get a valid recommendation after {RETRY_LIMIT} attempts")
-        print("Changing to manual_recommender, last attempt to solve the puzzle")
-        print(
-            f"last recommendation: {state['recommended_words']} with {state['recommended_connection']}"
-        )
-        state["tool_status"] = "manual_recommendation"
-
-    logger.info("Exiting get_recommendation")
-    logger.debug(f"Exiting get_recommendation State: {pp.pformat(state)}")
-
-    return state
-
-
-def get_embedvec_recommendation(state: PuzzleState) -> PuzzleState:
-    logger.info("Entering get_embedvec_recommendation")
-    logger.debug(f"Entering get_embedvec_recommendation State: {pp.pformat(state)}")
-
-    state["current_tool"] = "embedvec_recommender"
-    print(f"\nENTERED {state['current_tool'].upper()}")
-    print(
-        f"found count: {state['found_count']}, mistake_count: {state['mistake_count']}"
-    )
-
-    # get candidate list of words from database
-    conn = sqlite3.connect(state["vocabulary_db_fp"])
-    sql_query = "SELECT * FROM vocabulary"
-    df = pd.read_sql_query(sql_query, conn)
-    conn.close()
-
-    # convert embedding string representation to numpy array
-    df["embedding"] = df["embedding"].apply(lambda x: np.array(json.loads(x)))
-
-    # get candidate list of words based on embedding vectors
-    candidate_list = get_candidate_words(df)
-    print(f"candidate_lists size: {len(candidate_list)}")
-
-    # validate the top 5 candidate list with LLM
-    list_to_validate = "\n".join([str(x) for x in candidate_list[:5]])
-    recommended_group = choose_embedvec_item(list_to_validate)
-    logger.info(f"Recommended group: {recommended_group}")
-
-    state["recommended_words"] = recommended_group["candidate_group"]
-    state["recommended_connection"] = recommended_group["explanation"]
-    state["tool_status"] = "have_recommendation"
-
-    # build prompt for llm
-
-    logger.info("Exiting get_embedvec_recommendation")
-    logger.debug(f"Exiting get_embedvec_recommendation State: {pp.pformat(state)}")
-
-    return state
-
-
-def get_manual_recommendation(state: PuzzleState) -> PuzzleState:
-    logger.info("Entering get_manual_recommendation")
-    logger.debug(f"Entering get_manual_recommendation State: {pp.pformat(state)}")
-
-    state["current_tool"] = "manual_recommender"
-    print(f"\nENTERED {state['current_tool'].upper()}")
-    print(
-        f"found count: {state['found_count']}, mistake_count: {state['mistake_count']}"
-    )
-
-    # display current recommendation and words remaining
-    print(f"\nCurrent recommendation: {sorted(state['recommended_words'])}")
-    print(f"Words remaining: {state['words_remaining']}")
-
-    # get user input for manual recommendation
-    response = "n"
-    while response != "y":
-        manual_recommendation = [
-            x.strip()
-            for x in input(
-                "Enter manual recommendation as comma separated words: "
-            ).split(",")
-        ]
-        print(f"Manual recommendation: {manual_recommendation}")
-
-        if (
-            not set(manual_recommendation).issubset(set(state["words_remaining"]))
-            or len(manual_recommendation) != 4
-        ):
-            print(
-                "Manual recommendation is not a subset of words remaining or not 4 words"
-            )
-            print("try again")
-        else:
-            response = input("Is the manual recommendation correct? (y/n): ")
-
-    # get user defined connection
-    response = "n"
-    while response != "y":
-        manual_connection = input("Enter manual connection: ")
-        print(f"Manual connection: {manual_connection}")
-        response = input("Is the manual connection correct? (y/n): ")
-
-    state["recommended_words"] = manual_recommendation
-    state["recommended_connection"] = manual_connection
-    state["tool_status"] = "have_recommendation"
-
-    logger.info("Exiting get_manual_recommendation")
-    logger.debug(f"Exiting get_manual_recommendation State: {pp.pformat(state)}")
-
-    return state
-
-
 def apply_recommendation(state: PuzzleState) -> PuzzleState:
     logger.info("Entering apply_recommendation:")
     logger.debug(f"\nEntering apply_recommendation State: {pp.pformat(state)}")
@@ -1503,7 +1277,7 @@ def run_workflow(puzzle_setup) -> None:
     print("\n\nFINAL PUZZLE STATE:")
     pp.pprint(chunk)
 
-    return None
+    return chunk["recommendation_correct_groups"]
 
 
 if __name__ == "__main__":
@@ -1553,9 +1327,13 @@ if __name__ == "__main__":
 
     print(f"Number of prompts: {len(puzzle_setups)}")
 
-    for puzzle_setup in puzzle_setups[:1]:
+    for puzzle_setup in puzzle_setups[:3]:
         print(f"\n{puzzle_setup}")
         print(f"\tpuzzle_words: {puzzle_setup['words']}")
         for s in puzzle_setup["solution"]["groups"]:
             print(f"\t{s}")
-        run_workflow(puzzle_setup)
+        found_groups = run_workflow(puzzle_setup)
+        print(f"\tFound Groups: {found_groups}")
+        print(f"\tExpected Groups:")
+        for s in puzzle_setup["solution"]["groups"]:
+            print(f"\t{s}")
