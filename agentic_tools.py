@@ -107,98 +107,6 @@ def chat_with_llm(prompt, model="gpt-4o", temperature=0.7, max_tokens=4096):
     return result
 
 
-def interact_with_user(words, connection, recommender) -> str:
-    recommendation_message = f"\n{recommender.upper()}: RECOMMENDED WORDS {words} with connection {connection}"
-    logger.info(recommendation_message)
-    print(recommendation_message)
-
-    user_instruction = "Is the recommendation accepted? (y/g/b/p/m/o/n): "
-    logger.info(user_instruction)
-    user_response = input(user_instruction)
-
-    logger.info(f"User response: {user_response}")
-
-    return user_response
-
-
-def read_file_to_word_list(file_location: str) -> List[str]:
-    """
-    Reads a file and returns a list of words separated by commas on the first line of the file.
-    Remainder of the file contains the correct word groupings and is ignored.
-
-    Prompts the user to enter the file location, reads the file, and splits its contents by commas.
-    Strips any leading or trailing whitespace from each word.
-
-    Returns:
-    list: A list of words from the file. If the file is not found or an error occurs, returns an empty list.
-    """
-
-    logger.info(f"Reading words from file {file_location}")
-    try:
-        with open(file_location, "r") as file:
-            contents = file.readline()
-            words = contents.split(",")
-            words = [word.strip() for word in words]
-            return words
-    except FileNotFoundError:
-        print(f"File not found: {file_location}")
-        return []
-    except Exception as e:
-        print(f"An error occurred: {e}")
-        return []
-
-
-def extract_words_from_image(image_fp: str) -> List[str]:
-    """
-    Encodes an image to base64 and sends it to the OpenAI LLM to extract words from the image.
-
-    Parameters:
-    image_path (str): The path to the image file to be processed.
-
-    Returns:
-    dict: The response from the LLM in JSON format.
-    """
-
-    logger.info("Entering extract_words_from_image")
-    logger.debug(f"Entering extract_words_from_image image_path: {image_fp}")
-
-    # Encode the image
-    with open(image_fp, "rb") as image_file:
-        base64_image = base64.b64encode(image_file.read()).decode("utf-8")
-
-    # Create a message with text and image
-    message = HumanMessage(
-        content=[
-            {
-                "type": "text",
-                "text": "extract words from the image and return as a json list",
-            },
-            {
-                "type": "image_url",
-                "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"},
-            },
-        ]
-    )
-
-    # Get the response from the model
-    response = chat_with_llm(
-        [message],
-        model="gpt-4o",
-        temperature=1.0,
-        max_tokens=4096,
-    )
-
-    words = [w.lower() for w in json.loads(response.content)["words"]]
-
-    logger.info("Exiting extract_words_from_image")
-    logger.debug(f"Exiting extract_words_from_image response {words}")
-
-    return words
-
-
-KEY_PUZZLE_STATE_FIELDS = ["puzzle_status", "tool_status", "current_tool"]
-
-
 def apply_recommendation(state: PuzzleState) -> PuzzleState:
     logger.info("Entering apply_recommendation:")
     logger.debug(f"\nEntering apply_recommendation State: {pp.pformat(state)}")
@@ -439,13 +347,7 @@ def ask_llm_for_solution(prompt, model="gpt-4o", temperature=1.0, max_tokens=409
 
 #####################################
 
-# specify the version of the agent
-__version__ = "0.7.1"
-
 pp = pprint.PrettyPrinter(indent=4)
-
-MAX_ERRORS = 4
-RETRY_LIMIT = 8
 
 
 KEY_PUZZLE_STATE_FIELDS = ["puzzle_status", "tool_status", "current_tool"]
@@ -467,9 +369,6 @@ WORKFLOW_SPECIFICATION = """
     |embedvec_recommender| have_recommendation | apply_recommendation |
     |llm_recommender| next_recommendation | get_llm_recommendation |
     |llm_recommender| have_recommendation | apply_recommendation |
-    |llm_recommender| manual_recommendation | get_manual_recommendation |
-    |manual_recommender| have_recommendation | apply_recommendation |
-    |manual_recommender| next_recommendation | get_llm_recommendation |
 
     If no tool is selected, use "ABORT" tool.
 """
@@ -640,59 +539,6 @@ def get_embedvec_recommendation(state: PuzzleState) -> PuzzleState:
 
     logger.info("Exiting get_embedvec_recommendation")
     logger.debug(f"Exiting get_embedvec_recommendation State: {pp.pformat(state)}")
-
-    return state
-
-
-def get_manual_recommendation(state: PuzzleState) -> PuzzleState:
-    logger.info("Entering get_manual_recommendation")
-    logger.debug(f"Entering get_manual_recommendation State: {pp.pformat(state)}")
-
-    state["current_tool"] = "manual_recommender"
-    print(f"\nENTERED {state['current_tool'].upper()}")
-    print(
-        f"found count: {state['found_count']}, mistake_count: {state['mistake_count']}"
-    )
-
-    # display current recommendation and words remaining
-    print(f"\nCurrent recommendation: {sorted(state['recommended_words'])}")
-    print(f"Words remaining: {state['words_remaining']}")
-
-    # get user input for manual recommendation
-    response = "n"
-    while response != "y":
-        manual_recommendation = [
-            x.strip()
-            for x in input(
-                "Enter manual recommendation as comma separated words: "
-            ).split(",")
-        ]
-        print(f"Manual recommendation: {manual_recommendation}")
-
-        if (
-            not set(manual_recommendation).issubset(set(state["words_remaining"]))
-            or len(manual_recommendation) != 4
-        ):
-            print(
-                "Manual recommendation is not a subset of words remaining or not 4 words"
-            )
-            print("try again")
-        else:
-            response = input("Is the manual recommendation correct? (y/n): ")
-
-    # get user defined connection
-    response = "n"
-    while response != "y":
-        manual_connection = input("Enter manual connection: ")
-        print(f"Manual connection: {manual_connection}")
-        response = input("Is the manual connection correct? (y/n): ")
-
-    state["recommended_words"] = manual_recommendation
-    state["recommended_connection"] = manual_connection
-    state["tool_status"] = "have_recommendation"
-
-    logger.info("Exiting get_manual_recommendation")
-    logger.debug(f"Exiting get_manual_recommendation State: {pp.pformat(state)}")
 
     return state
 
@@ -915,7 +761,7 @@ PLANNER_SYSTEM_MESSAGE = """
     You are an expert in managing the sequence of a workflow. Your task is to
     determine the next tool to use given the current state of the workflow.
 
-    the eligible tools to use are: ["setup_puzzle", "get_llm_recommendation", "apply_recommendation", "get_embedvec_recommendation", "get_manual_recommendation", "END"]
+    the eligible tools to use are: ["setup_puzzle", "get_llm_recommendation", "apply_recommendation", "get_embedvec_recommendation", "END"]
 
     The important information for the workflow state is to consider are: "puzzle_status", "tool_status", and "current_tool".
 
@@ -1187,7 +1033,6 @@ def run_workflow(puzzle_setup) -> None:
     workflow.add_node("setup_puzzle", setup_puzzle)
     workflow.add_node("get_embedvec_recommendation", get_embedvec_recommendation)
     workflow.add_node("get_llm_recommendation", get_llm_recommendation)
-    workflow.add_node("get_manual_recommendation", get_manual_recommendation)
     workflow.add_node("apply_recommendation", apply_recommendation)
 
     workflow.add_conditional_edges(
@@ -1197,7 +1042,6 @@ def run_workflow(puzzle_setup) -> None:
             "setup_puzzle": "setup_puzzle",
             "get_embedvec_recommendation": "get_embedvec_recommendation",
             "get_llm_recommendation": "get_llm_recommendation",
-            "get_manual_recommendation": "get_manual_recommendation",
             "apply_recommendation": "apply_recommendation",
             END: END,
         },
@@ -1206,7 +1050,6 @@ def run_workflow(puzzle_setup) -> None:
     workflow.add_edge("setup_puzzle", "run_planner")
     workflow.add_edge("get_llm_recommendation", "run_planner")
     workflow.add_edge("get_embedvec_recommendation", "run_planner")
-    workflow.add_edge("get_manual_recommendation", "run_planner")
     workflow.add_edge("apply_recommendation", "run_planner")
 
     workflow.set_entry_point("run_planner")
