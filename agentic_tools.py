@@ -1163,6 +1163,7 @@ def one_away_analyzer(
         prompt = [SystemMessage(CREATE_GROUP_SYSTEM_PROMPT), HumanMessage(user_prompt)]
 
         response = chat_with_llm(prompt)
+        response = json.loads(response.content)
         logger.info(response)
         new_group = list(selected_word_group.words) + [response["word"]]
         one_away_group_recommendation = RecommendedGroup(
@@ -1338,7 +1339,7 @@ if __name__ == "__main__":
 
     print(f"Number of prompts: {len(puzzle_setups)}")
 
-    for puzzle_setup in puzzle_setups[2:3]:
+    for puzzle_setup in puzzle_setups[:5]:
         print(f"\n{puzzle_setup}")
         print(f"\tpuzzle_words: {puzzle_setup['words']}")
         for s in puzzle_setup["solution"]["groups"]:
