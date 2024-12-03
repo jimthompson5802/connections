@@ -1,62 +1,25 @@
 import argparse
-import copy
 import logging
 import pprint
-import json
-import os
-import random
-import uuid
-import sqlite3
-import base64
-
-import numpy as np
-import pandas as pd
-
-from langgraph.graph import StateGraph, END
-from langgraph.checkpoint.memory import MemorySaver
-from langchain_core.messages import HumanMessage
-
-from langchain_core.tracers.context import tracing_v2_enabled
-
-import argparse
-import copy
-import logging
-import json
-import os
-import random
-import uuid
-import sqlite3
-
-
-import numpy as np
-import pandas as pd
-
-from langgraph.graph import StateGraph, END
-from langgraph.checkpoint.memory import MemorySaver
-from langchain_core.messages import HumanMessage
-
-from langchain_core.tracers.context import tracing_v2_enabled
-
-from dataclasses import dataclass, field
-import json
-import logging
-
-# import pprint as pp
-import random
-from typing import List, TypedDict, Optional, Tuple
 import hashlib
 import itertools
-import sqlite3
+import json
 import os
+import random
+import uuid
+import sqlite3
 
-import pandas as pd
+from dataclasses import dataclass, field
+from typing import List, TypedDict, Optional, Tuple
+
 import numpy as np
-
+import pandas as pd
 from sklearn.metrics.pairwise import cosine_similarity
 
+from langgraph.graph import StateGraph, END
+from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-
 
 # specify the version of the agent
 __version__ = "0.1.0"
@@ -236,29 +199,6 @@ def apply_recommendation(state: PuzzleState) -> PuzzleState:
     return state
 
 
-def configure_logging(log_level):
-    # get numeric value of log level
-    numeric_level = getattr(logging, log_level.upper(), None)
-    if not isinstance(numeric_level, int):
-        raise ValueError(f"Invalid log level: {log_level}")
-
-    # Configure the logging settings
-    logging.basicConfig(
-        level=numeric_level,  # Set the logging level
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",  # Define the log format
-        handlers=[
-            logging.FileHandler("app.log"),  # Log to a file
-            # logging.StreamHandler(),  # Optional: Log to the console as well
-        ],
-    )
-
-
-#########################################
-
-
-# Used ChatGPT to get an initial system message with this prompt:
-# "What is a good system prompt to solve the NYT Connection Puzzle that returns a JSON output?"
-# Revised the system message to be based on development experience.
 SYSTEM_MESSAGE_LLM = SystemMessage(
     """
     You are a helpful assistant in solving the New York Times Connection Puzzle.
@@ -343,11 +283,6 @@ def ask_llm_for_solution(prompt, model="gpt-4o", temperature=1.0, max_tokens=409
     logger.debug(f"exiting ask_llm_for_solution response {response.content}")
 
     return response
-
-
-#####################################
-
-pp = pprint.PrettyPrinter(indent=4)
 
 
 KEY_PUZZLE_STATE_FIELDS = ["puzzle_status", "tool_status", "current_tool"]
@@ -558,13 +493,6 @@ def configure_logging(log_level):
             # logging.StreamHandler(),  # Optional: Log to the console as well
         ],
     )
-
-
-#########################################
-
-
-logger = logging.getLogger(__name__)
-# pp = pp.PrettyPrinter(indent=4)
 
 
 def compute_group_id(word_group: list) -> str:
@@ -1024,7 +952,7 @@ def one_away_analyzer(
     return one_away_group_recommendation
 
 
-def run_workflow(puzzle_setup) -> None:
+def run_agentic_solver(puzzle_setup) -> None:
     # result = workflow_graph.invoke(initial_state, runtime_config)
 
     workflow = StateGraph(PuzzleState)
@@ -1089,18 +1017,20 @@ def run_workflow(puzzle_setup) -> None:
         else:
             return "incorrect"
 
-    # run workflow until first human-in-the-loop input required for setup
+    # run part of workflow to do puzzle setup
     for chunk in workflow_graph.stream(
         initial_state, runtime_config, stream_mode="values"
     ):
         pass
 
-    # continue workflow until the next human-in-the-loop input required for puzzle answer
+    # continue workflow until feedback is needed on a group recommendation
     while chunk["tool_status"] != "puzzle_completed":
         current_state = workflow_graph.get_state(runtime_config)
         logger.debug(f"\nCurrent state: {current_state}")
         logger.info(f"\nNext action: {current_state.next}")
+
         if current_state.next[0] == "setup_puzzle":
+            # setup puzzle for the workflow
             workflow_graph.update_state(
                 runtime_config,
                 {
@@ -1109,6 +1039,7 @@ def run_workflow(puzzle_setup) -> None:
             )
 
         elif current_state.next[0] == "apply_recommendation":
+            # check the recommendation against the solutions
             checker_response = check_one_solution(
                 puzzle_setup["solution"],
                 chunk["recommended_words"],
@@ -1124,17 +1055,21 @@ def run_workflow(puzzle_setup) -> None:
         else:
             raise RuntimeError(f"Unexpected next action: {current_state.next[0]}")
 
-        # run rest of workflow untile the next human-in-the-loop input required for puzzle answer
+        # run rest of workflow until feedback is needed on a group recommendation
         for chunk in workflow_graph.stream(None, runtime_config, stream_mode="values"):
             logger.debug(f"\nstate: {workflow_graph.get_state(runtime_config)}")
             pass
 
+    # return all found correct groups
     return chunk["recommendation_correct_groups"]
 
 
+# For testing run the module, e.g.,
+# python agentic_tools.py
+
 if __name__ == "__main__":
 
-    print(f"Running Connection Solver Agent with EmbedVec Recommender {__version__}")
+    print(f"Running Connection Solver Agent {__version__}")
 
     parser = argparse.ArgumentParser(
         description="Set logging level for the application."
@@ -1145,27 +1080,25 @@ if __name__ == "__main__":
         default="INFO",
         help="Set the logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
     )
+
+    # argument for numbr of puzzle setups to run
     parser.add_argument(
-        "--trace",
-        action="store_true",
-        default=False,
-        help="Enable langsmith tracing for the application.",
+        "--num_puzzles",
+        type=int,
+        default=5,
+        help="Number of puzzles to run",
     )
 
     # Parse arguments
     args = parser.parse_args()
+
+    print(f"Solving for {args.num_puzzles} puzzles")
 
     # Configure logging
     configure_logging(args.log_level)
 
     # Create a logger instance
     logger = logging.getLogger(__name__)
-
-    # if args.trace:
-    #     with tracing_v2_enabled("Connection_Solver_Agent"):
-    #         result = run_workflow(workflow_graph, initial_state, runtime_config)
-    # else:
-    #     result = run_workflow(workflow_graph, initial_state, runtime_config)
 
     def load_jsonl(file_path):
         data = []
@@ -1180,21 +1113,14 @@ if __name__ == "__main__":
     print(f"Number of prompts: {len(puzzle_setups)}")
 
     found_groups_list = []
-    for puzzle_setup in puzzle_setups[:5]:
-        print(f"\n\n{puzzle_setup}")
-        print(f"\tpuzzle_words: {puzzle_setup['words']}")
-        for s in puzzle_setup["solution"]["groups"]:
-            print(f"\t{s}")
-        found_groups = run_workflow(puzzle_setup)
+    for i, puzzle_setup in enumerate(puzzle_setups[: args.num_puzzles]):
+        print(f"\nSolving puzzle {i+1} with words: {puzzle_setup['words']}")
+
+        found_groups = run_agentic_solver(puzzle_setup)
         found_groups_list.append(found_groups)
-        print(f"\n\tSolver Found Groups:\n")
-        for fg in found_groups:
-            print(f"\t{fg}")
-        print(f"\n\tExpected Groups:")
-        for s in puzzle_setup["solution"]["groups"]:
-            print(f"\t{s}")
 
     print("\nAll Found Groups:")
     for i, found_groups in enumerate(found_groups_list):
+        print("")
         for found_group in found_groups:
-            print(f"Group {i}, {found_group}")
+            print(f"Group {i+1}, {found_group}")
