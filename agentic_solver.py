@@ -9,6 +9,8 @@ import openai
 
 import simple_parsing
 
+from agentic_tools import run_agentic_solver
+
 client = openai.AsyncClient()
 
 SLEEP_TIME = 0.2
@@ -97,92 +99,12 @@ def check_one_solution(solution, model_output):
 
 
 class AgenticModel(weave.Model):
-    # system_prompt: str
-    # user_prompt: str
-    max_retries: int = 4
-    # shuffle_words: bool = False
 
     @weave.op()
-    def create_incorrect_prompt(self, words: list[str], solution: dict, score: str):
-        incorrect_prompt = f"This solution is wrong: {solution} " + (
-            f"but you got 3/4 words that belong to a category. Try changing one word to get a 4/4."
-            if score["match"] == 3
-            else ""
-        )
-        incorrect_prompt += (
-            "\nDon't repeat any previous wrong solutions. Let's try again. "
-            "Let's continue with the rest of the words. "
-            f"Here are the remaining {len(words)} words: {words} \n"
-            "Guess another group of 4 words. Think outside the box and don't repeat the same previous wrong answer please. "
-            "Do not add any additional text to your final answer, just the category name and the 4 words."
-        )
-        return incorrect_prompt
+    async def predict(self, puzzle_setup):
+        solver_output = await run_agentic_solver(puzzle_setup)
 
-    # @weave.op()
-    # def create_correct_prompt(self, words: list[str], solution: dict):
-    #     if self.shuffle_words:
-    #         random.shuffle(words)
-    #     correct_prompt = (
-    #         f"Great work, {solution} is a correct solution. "
-    #         "Let's continue with the rest of the words. "
-    #         f"Here are the remaining {len(words)} words:\n{words} \n"
-    #         "Guess another group of 4 words. "
-    #         "Do not add any additional text to your final answer, just the category name and the 4 words."
-    #     )
-    #     return correct_prompt
-
-    # @weave.op()
-    # def initial_messages(self, words):
-    #     return [
-    #         {
-    #             "role": "system",
-    #             "content": self.system_prompt
-    #         },
-    #         {
-    #             "role": "user",
-    #             "content": self.user_prompt + f"Here are the starting 16 words: {words}\nDo not add any additional text to your final answer, just the group name and the 4 words."
-    #         }
-    #     ]
-
-    @weave.op()
-    async def predict(self, words, solution):
-        retries = 0
-        correct_guesses = []
-        remaining_words = [w for w in words]  # listify
-
-        # initial prompt
-        messages = self.initial_messages(words)
-
-        while len(remaining_words) > 4 and retries < self.max_retries:
-            # generate a solution for the current group
-            generation = await generate_solution(messages)
-            time.sleep(SLEEP_TIME)
-            scores = check_one_solution(solution, generation)
-            print(f"Current generation {generation} -> score: {scores}")
-            time.sleep(SLEEP_TIME)
-            if scores["match"] == 4:
-                print(" > Great, we have a match")
-                correct_guesses.append(generation)
-                remaining_words = [
-                    w for w in remaining_words if w not in generation["words"]
-                ]
-                user_prompt = self.create_correct_prompt(remaining_words, generation)
-            else:
-                print(f" > Not a match, let's try again: retries={retries}")
-                user_prompt = self.create_incorrect_prompt(
-                    remaining_words, generation, scores
-                )
-                retries += 1
-            # we append to the messages list
-            messages += [
-                {"role": "assistant", "content": str(generation)},
-                {"role": "user", "content": str(user_prompt)},
-            ]
-        # we have the last group in here!
-        if len(remaining_words) == 4:
-            print("We have the last group in here!")
-            correct_guesses.append({"reason": "last_group", "words": remaining_words})
-        return correct_guesses
+        return solver_output
 
 
 @weave.op()
@@ -198,11 +120,7 @@ def check_final_solution(solution, model_output):
 
 weave.init(args.weave_project)
 
-model = AgenticModel(
-    # system_prompt=system_prompt,
-    # user_prompt=user_prompt,
-    max_retries=args.max_retries
-)
+model = AgenticModel()
 
 # ds = load_jsonl('connections_prompts2.jsonl')
 ds = load_jsonl(args.file_path)
