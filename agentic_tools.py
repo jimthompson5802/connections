@@ -952,7 +952,7 @@ def one_away_analyzer(
     return one_away_group_recommendation
 
 
-def run_agentic_solver(puzzle_setup) -> None:
+async def run_agentic_solver(words, solution) -> None:
     # result = workflow_graph.invoke(initial_state, runtime_config)
 
     workflow = StateGraph(PuzzleState)
@@ -1034,14 +1034,14 @@ def run_agentic_solver(puzzle_setup) -> None:
             workflow_graph.update_state(
                 runtime_config,
                 {
-                    "words_remaining": puzzle_setup["words"],
+                    "words_remaining": words,
                 },
             )
 
         elif current_state.next[0] == "apply_recommendation":
             # check the recommendation against the solutions
             checker_response = check_one_solution(
-                puzzle_setup["solution"],
+                solution,
                 chunk["recommended_words"],
                 chunk["recommended_connection"],
             )
