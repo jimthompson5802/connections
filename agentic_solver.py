@@ -24,7 +24,7 @@ class ScriptArgs:
     max_retries: int = 4
     max_tokens: int = 128
     temperature: float = 0.7
-    num_samples: int = 5
+    num_samples: int = 1
 
 
 args = simple_parsing.parse(ScriptArgs)
@@ -38,71 +38,11 @@ def load_jsonl(file_path):
     return data
 
 
-# @weave.op()
-# async def call_openai(messages, model=args.model, max_tokens=args.max_tokens, temperature=args.temperature):
-#     response = await client.chat.completions.create(
-#         model=model,
-#         messages=messages,
-#         max_tokens=max_tokens,
-#         temperature=temperature,
-#         response_format={ "type": "json_object" }
-#         )
-#     extracted = response.choices[0].message.content
-#     if extracted is None:
-#         raise ValueError("No response from model")
-#     return extracted
-
-# @weave.op()
-# async def generate_solution(messages):
-
-#     res = await call_openai(messages)
-#     try:
-#         generation = json.loads(res)
-#     except:
-#         generation = {}
-#     return generation
-
-
-# @weave.op()
-# def check_one_solution(solution, model_output):
-#     gen_reason = model_output["reason"]
-#     gen_words = model_output["words"]
-#     for sol_dict in solution["groups"]:
-#         sol_words = sol_dict["words"]
-#         sol_reason = sol_dict["reason"]
-#         if set(gen_words) == set(sol_words):
-#             print(f"{gen_reason} ~ {sol_reason}: {gen_words} == {sol_words}")
-#             return {"match": 4}
-#         elif len(set(gen_words).intersection(set(sol_words))) == 3:
-#             return {"match": 3}
-#     else:
-#         return {"match": 0}
-
-
-# system_prompt = (
-#     "You are an expert puzzle solver. You understand literature and you are well versed on word play. "
-#     "I want you to solve a daily word puzzle that finds commonalities between words.\n"
-#     )
-
-# user_prompt = (
-#     "Here it's the puzzle:\n"
-#     "- There are 16 words, which form 4 groups of 4 words. Each group has some common theme that links the words.\n"
-#     "- You must use each of the 16 words, and use each word only once.\n"
-#     "- Each group of 4 words are linked together in some way. \n"
-#     "The connection between words can be simple.\n"
-#     """- An example of a simple connection would be {"reason":'types of fish', "words":["Bass", "Flounder", "Salmon", "Trout"]}. \n"""
-#     """- Categories can also be more complex, and require abstract or lateral thinking. An example of this type of connection would be {"reason": 'things that start with FIRE', "words": ['Ant', 'Drill', 'Island', 'Opal']}\n"""
-#     "Provide the one group you are most sure of as your final answer. I will enter this into the puzzle and give you feedback. I will tell you whether it is correct, incorrect or if you got 3 out of 4. "
-#     "Then we will continue until the puzzle is solved, or you lose.\n"
-#     """The results should be in JSON format as following: {"reason":"reason why words are grouped", "words":["word1", "word2", "word3", "word4"]}\n"""
-# )
-
-
 class AgenticModel(weave.Model):
 
     @weave.op()
     async def predict(self, words, solution):
-        solver_output = await run_agentic_simulator(words, solution)
+        solver_output = await run_agentic_solver(words, solution)
         return solver_output
 
 
