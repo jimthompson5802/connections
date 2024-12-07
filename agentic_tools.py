@@ -1,3 +1,5 @@
+import asyncio
+import aiosqlite
 import argparse
 import logging
 import pprint
@@ -26,6 +28,8 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 __version__ = "0.1.0"
 
 pp = pprint.PrettyPrinter(indent=4)
+
+db_lock = asyncio.Lock()
 
 MAX_ERRORS = 4
 RETRY_LIMIT = 8
@@ -74,7 +78,7 @@ def chat_with_llm(prompt, model="gpt-4o", temperature=0.7, max_tokens=4096):
     return result
 
 
-def apply_recommendation(state: PuzzleState) -> PuzzleState:
+async def apply_recommendation(state: PuzzleState) -> PuzzleState:
     logger.info("Entering apply_recommendation:")
     logger.debug(f"\nEntering apply_recommendation State: {pp.pformat(state)}")
 
@@ -89,14 +93,15 @@ def apply_recommendation(state: PuzzleState) -> PuzzleState:
 
         # for embedvec_recommender, remove the words from the vocabulary database
         if state["current_tool"] == "embedvec_recommender":
-            # remove accepted words from vocabulary.db
-            conn = sqlite3.connect(state["vocabulary_db_fp"])
-            # for each word in recommended_words, remove the word from the vocabulary table
-            for word in state["recommended_words"]:
-                sql_query = f"DELETE FROM vocabulary WHERE word = '{word}'"
-                conn.execute(sql_query)
-            conn.commit()
-            conn.close()
+            async with aiosqlite.connect(state["vocabulary_db_fp"]) as conn:
+                async with db_lock:
+                    # remove accepted words from vocabulary.db
+                    # for each word in recommended_words, remove the word from the vocabulary table
+                    for word in state["recommended_words"]:
+                        sql_query = f"DELETE FROM vocabulary WHERE word = '{word}'"
+                        await conn.execute(sql_query)
+                    await conn.commit()
+                    await conn.close()
 
         # remove the words from words_remaining
         state["words_remaining"] = [
@@ -447,7 +452,7 @@ def get_llm_recommendation(state: PuzzleState) -> PuzzleState:
     return state
 
 
-def get_embedvec_recommendation(state: PuzzleState) -> PuzzleState:
+async def get_embedvec_recommendation(state: PuzzleState) -> PuzzleState:
     logger.info("Entering get_embedvec_recommendation")
     logger.debug(f"Entering get_embedvec_recommendation State: {pp.pformat(state)}")
 
@@ -457,11 +462,12 @@ def get_embedvec_recommendation(state: PuzzleState) -> PuzzleState:
         f"found count: {state['found_count']}, mistake_count: {state['mistake_count']}"
     )
 
-    # get candidate list of words from database
-    conn = sqlite3.connect(state["vocabulary_db_fp"])
-    sql_query = "SELECT * FROM vocabulary"
-    df = pd.read_sql_query(sql_query, conn)
-    conn.close()
+    async with aiosqlite.connect(state["vocabulary_db_fp"]) as conn:
+        async with db_lock:
+            # get candidate list of words from database
+            sql_query = "SELECT * FROM vocabulary"
+            df = await pd.read_sql_query(sql_query, conn)
+            await conn.close()
 
     # convert embedding string representation to numpy array
     df["embedding"] = df["embedding"].apply(lambda x: np.array(json.loads(x)))
@@ -572,7 +578,7 @@ class RecommendedGroup:
         return f"Recommended Group: {self.words}\nConnection Description: {self.connection_description}"
 
 
-def setup_puzzle(state: PuzzleState) -> PuzzleState:
+async def setup_puzzle(state: PuzzleState) -> PuzzleState:
     logger.info("Entering setup_puzzle:")
     logger.debug(f"\nEntering setup_puzzle State: {pp.pformat(state)}")
 
@@ -608,29 +614,22 @@ def setup_puzzle(state: PuzzleState) -> PuzzleState:
     # convert embeddings to json strings for storage
     df["embedding"] = [json.dumps(v) for v in embeddings]
 
-    # store the vocabulary in external database
-    print("\nStoring vocabulary in external database")
-    # remove prior database file, ignore if it does not exist
-    try:
-        os.remove(state["vocabulary_db_fp"])
-    except FileNotFoundError:
-        pass
-
-    conn = sqlite3.connect(state["vocabulary_db_fp"])
-    cursor = conn.cursor()
-    # create the table
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS vocabulary (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            word TEXT,
-            definition TEXT,
-            embedding TEXT
-        )
-        """
-    )
-    df.to_sql("vocabulary", conn, if_exists="replace", index=False)
-    conn.close()
+    async with aiosqlite.connect(state["vocabulary_db_fp"]) as conn:
+        async with db_lock:
+            cursor = await conn.cursor()
+            # create the table
+            await cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS vocabulary (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    word TEXT,
+                    definition TEXT,
+                    embedding TEXT
+                )
+                """
+            )
+            await df.to_sql("vocabulary", conn, if_exists="replace", index=False)
+            await conn.close()
 
     logger.info("Exiting setup_puzzle:")
     logger.debug(f"\nExiting setup_puzzle State: {pp.pformat(state)}")
@@ -961,7 +960,7 @@ def one_away_analyzer(
     return one_away_group_recommendation
 
 
-async def run_agentic_solver(words, solution) -> None:
+async def run_agentic_solver(words, solution):
     # result = workflow_graph.invoke(initial_state, runtime_config)
 
     workflow = StateGraph(PuzzleState)
@@ -1030,7 +1029,7 @@ async def run_agentic_solver(words, solution) -> None:
         )
 
         # run part of workflow to do puzzle setup
-        for chunk in workflow_graph.stream(
+        async for chunk in workflow_graph.astream(
             initial_state, runtime_config, stream_mode="values"
         ):
             pass
@@ -1068,7 +1067,7 @@ async def run_agentic_solver(words, solution) -> None:
                 raise RuntimeError(f"Unexpected next action: {current_state.next[0]}")
 
             # run rest of workflow until feedback is needed on a group recommendation
-            for chunk in workflow_graph.stream(
+            async for chunk in workflow_graph.astream(
                 None, runtime_config, stream_mode="values"
             ):
                 logger.debug(f"\nstate: {workflow_graph.get_state(runtime_config)}")
@@ -1086,9 +1085,7 @@ async def run_agentic_simulator(words, solution):
 
 # For testing run the module, e.g.,
 # python agentic_tools.py
-
-if __name__ == "__main__":
-
+async def main():
     print(f"Running Connection Solver Agent {__version__}")
 
     parser = argparse.ArgumentParser(
@@ -1105,7 +1102,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--num_puzzles",
         type=int,
-        default=5,
+        default=1,
         help="Number of puzzles to run",
     )
 
@@ -1136,7 +1133,7 @@ if __name__ == "__main__":
     for i, puzzle_setup in enumerate(puzzle_setups[: args.num_puzzles]):
         print(f"\nSolving puzzle {i+1} with words: {puzzle_setup['words']}")
 
-        found_groups = run_agentic_simulator(
+        found_groups = await run_agentic_solver(
             puzzle_setup["words"], puzzle_setup["solution"]
         )
         found_groups_list.append(found_groups)
@@ -1146,3 +1143,7 @@ if __name__ == "__main__":
         print("")
         for found_group in found_groups:
             print(f"Group {i+1}, {found_group}")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

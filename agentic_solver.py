@@ -29,7 +29,7 @@ class ScriptArgs:
     max_retries: int = 4
     max_tokens: int = 128
     temperature: float = 0.7
-    num_samples: int = 5
+    num_samples: int = 1
 
 
 args = simple_parsing.parse(ScriptArgs)
@@ -47,7 +47,9 @@ class AgenticModel(weave.Model):
 
     @weave.op()
     async def predict(self, words, solution):
-        solver_output = await run_agentic_solver(words, solution)
+        solver_output = []
+        async for item in await run_agentic_solver(words, solution):
+            solver_output.append(item)
         return solver_output
 
 

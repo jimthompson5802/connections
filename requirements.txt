@@ -11,3 +11,4 @@ instructor
 # required for agentic solver
 pandas
 scikit-learn
+aiosqlite
