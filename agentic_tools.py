@@ -8,6 +8,7 @@ import os
 import random
 import uuid
 import sqlite3
+import tempfile
 
 from dataclasses import dataclass, field
 from typing import List, TypedDict, Optional, Tuple
@@ -998,16 +999,6 @@ async def run_agentic_solver(words, solution) -> None:
     )
     # workflow_graph.get_graph().draw_png("images/connection_solver_embedvec_graph.png")
 
-    initial_state = PuzzleState(
-        puzzle_status="",
-        current_tool="",
-        tool_status="",
-        workflow_instructions=None,
-        llm_temperature=0.7,
-        vocabulary_db_fp="/tmp/vocabulary.db",
-        recommendation_correct_groups=[],
-    )
-
     runtime_config = {
         "configurable": {"thread_id": str(uuid.uuid4())},
         "recursion_limit": 50,
@@ -1025,48 +1016,63 @@ async def run_agentic_solver(words, solution) -> None:
         else:
             return "incorrect"
 
-    # run part of workflow to do puzzle setup
-    for chunk in workflow_graph.stream(
-        initial_state, runtime_config, stream_mode="values"
-    ):
-        pass
+    with tempfile.NamedTemporaryFile(suffix=".db") as tmp_db:
+        print(f"Using temporary database: {tmp_db.name}")
 
-    # continue workflow until feedback is needed on a group recommendation
-    while chunk["tool_status"] != "puzzle_completed":
-        current_state = workflow_graph.get_state(runtime_config)
-        logger.debug(f"\nCurrent state: {current_state}")
-        logger.info(f"\nNext action: {current_state.next}")
+        initial_state = PuzzleState(
+            puzzle_status="",
+            current_tool="",
+            tool_status="",
+            workflow_instructions=None,
+            llm_temperature=0.7,
+            vocabulary_db_fp=tmp_db.name,
+            recommendation_correct_groups=[],
+        )
 
-        if current_state.next[0] == "setup_puzzle":
-            # setup puzzle for the workflow
-            workflow_graph.update_state(
-                runtime_config,
-                {
-                    "words_remaining": words,
-                },
-            )
-
-        elif current_state.next[0] == "apply_recommendation":
-            # check the recommendation against the solutions
-            checker_response = check_one_solution(
-                solution,
-                chunk["recommended_words"],
-                chunk["recommended_connection"],
-            )
-
-            workflow_graph.update_state(
-                runtime_config,
-                {
-                    "puzzle_checker_response": checker_response,
-                },
-            )
-        else:
-            raise RuntimeError(f"Unexpected next action: {current_state.next[0]}")
-
-        # run rest of workflow until feedback is needed on a group recommendation
-        for chunk in workflow_graph.stream(None, runtime_config, stream_mode="values"):
-            logger.debug(f"\nstate: {workflow_graph.get_state(runtime_config)}")
+        # run part of workflow to do puzzle setup
+        for chunk in workflow_graph.stream(
+            initial_state, runtime_config, stream_mode="values"
+        ):
             pass
+
+        # continue workflow until feedback is needed on a group recommendation
+        while chunk["tool_status"] != "puzzle_completed":
+            current_state = workflow_graph.get_state(runtime_config)
+            logger.debug(f"\nCurrent state: {current_state}")
+            logger.info(f"\nNext action: {current_state.next}")
+
+            if current_state.next[0] == "setup_puzzle":
+                # setup puzzle for the workflow
+                workflow_graph.update_state(
+                    runtime_config,
+                    {
+                        "words_remaining": words,
+                    },
+                )
+
+            elif current_state.next[0] == "apply_recommendation":
+                # check the recommendation against the solutions
+                checker_response = check_one_solution(
+                    solution,
+                    chunk["recommended_words"],
+                    chunk["recommended_connection"],
+                )
+
+                workflow_graph.update_state(
+                    runtime_config,
+                    {
+                        "puzzle_checker_response": checker_response,
+                    },
+                )
+            else:
+                raise RuntimeError(f"Unexpected next action: {current_state.next[0]}")
+
+            # run rest of workflow until feedback is needed on a group recommendation
+            for chunk in workflow_graph.stream(
+                None, runtime_config, stream_mode="values"
+            ):
+                logger.debug(f"\nstate: {workflow_graph.get_state(runtime_config)}")
+                pass
 
     # return all found correct groups
     return chunk["recommendation_correct_groups"]
