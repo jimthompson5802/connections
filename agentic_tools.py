@@ -1064,6 +1064,12 @@ def run_agentic_solver(puzzle_setup) -> None:
     return chunk["recommendation_correct_groups"]
 
 
+# used for testing and debugging
+async def run_agentic_simulator(words, solution):
+    answer = [g for g in solution["groups"]]
+    return answer
+
+
 # For testing run the module, e.g.,
 # python agentic_tools.py
 
@@ -1116,7 +1122,9 @@ if __name__ == "__main__":
     for i, puzzle_setup in enumerate(puzzle_setups[: args.num_puzzles]):
         print(f"\nSolving puzzle {i+1} with words: {puzzle_setup['words']}")
 
-        found_groups = run_agentic_solver(puzzle_setup)
+        found_groups = run_agentic_simulator(
+            puzzle_setup["words"], puzzle_setup["solution"]
+        )
         found_groups_list.append(found_groups)
 
     print("\nAll Found Groups:")

@@ -9,7 +9,7 @@ import openai
 
 import simple_parsing
 
-from agentic_tools import run_agentic_solver
+from agentic_tools import run_agentic_solver, run_agentic_simulator
 
 client = openai.AsyncClient()
 
@@ -63,20 +63,20 @@ def load_jsonl(file_path):
 #     return generation
 
 
-@weave.op()
-def check_one_solution(solution, model_output):
-    gen_reason = model_output["reason"]
-    gen_words = model_output["words"]
-    for sol_dict in solution["groups"]:
-        sol_words = sol_dict["words"]
-        sol_reason = sol_dict["reason"]
-        if set(gen_words) == set(sol_words):
-            print(f"{gen_reason} ~ {sol_reason}: {gen_words} == {sol_words}")
-            return {"match": 4}
-        elif len(set(gen_words).intersection(set(sol_words))) == 3:
-            return {"match": 3}
-    else:
-        return {"match": 0}
+# @weave.op()
+# def check_one_solution(solution, model_output):
+#     gen_reason = model_output["reason"]
+#     gen_words = model_output["words"]
+#     for sol_dict in solution["groups"]:
+#         sol_words = sol_dict["words"]
+#         sol_reason = sol_dict["reason"]
+#         if set(gen_words) == set(sol_words):
+#             print(f"{gen_reason} ~ {sol_reason}: {gen_words} == {sol_words}")
+#             return {"match": 4}
+#         elif len(set(gen_words).intersection(set(sol_words))) == 3:
+#             return {"match": 3}
+#     else:
+#         return {"match": 0}
 
 
 # system_prompt = (
@@ -101,9 +101,8 @@ def check_one_solution(solution, model_output):
 class AgenticModel(weave.Model):
 
     @weave.op()
-    async def predict(self, puzzle_setup):
-        solver_output = await run_agentic_solver(puzzle_setup)
-
+    async def predict(self, words, solution):
+        solver_output = await run_agentic_simulator(words, solution)
         return solver_output
 
 
