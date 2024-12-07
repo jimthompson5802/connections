@@ -5,3 +5,5 @@ connections_data/
 
 # MacOS
 .DS_Store
+
+__pycache__/
