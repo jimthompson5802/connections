@@ -1,6 +1,7 @@
 import asyncio
 import time
 import json
+import logging
 import random
 from dataclasses import dataclass
 
@@ -15,6 +16,10 @@ client = openai.AsyncClient()
 
 SLEEP_TIME = 0.2
 
+# Create a logger instance
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
 
 @dataclass
 class ScriptArgs:
@@ -24,7 +29,7 @@ class ScriptArgs:
     max_retries: int = 4
     max_tokens: int = 128
     temperature: float = 0.7
-    num_samples: int = 1
+    num_samples: int = 5
 
 
 args = simple_parsing.parse(ScriptArgs)

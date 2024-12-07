@@ -29,6 +29,9 @@ pp = pprint.PrettyPrinter(indent=4)
 MAX_ERRORS = 4
 RETRY_LIMIT = 8
 
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
 
 # define the state of the puzzle
 class PuzzleState(TypedDict):
@@ -102,7 +105,12 @@ def apply_recommendation(state: PuzzleState) -> PuzzleState:
         ]
         state["recommended_correct"] = True
         state["found_count"] += 1
-        state["recommendation_correct_groups"].append(state["recommended_words"])
+        state["recommendation_correct_groups"].append(
+            {
+                "words": state["recommended_words"],
+                "reason": state["recommended_connection"],
+            }
+        )
 
     elif checker_response in ["one_away", "incorrect"]:
         invalid_group = state["recommended_words"]
