@@ -101,7 +101,7 @@ async def apply_recommendation(state: PuzzleState) -> PuzzleState:
                         sql_query = f"DELETE FROM vocabulary WHERE word = '{word}'"
                         await conn.execute(sql_query)
                     await conn.commit()
-                    await conn.close()
+                    # await conn.close()
 
         # remove the words from words_remaining
         state["words_remaining"] = [
@@ -465,9 +465,12 @@ async def get_embedvec_recommendation(state: PuzzleState) -> PuzzleState:
     async with aiosqlite.connect(state["vocabulary_db_fp"]) as conn:
         async with db_lock:
             # get candidate list of words from database
-            sql_query = "SELECT * FROM vocabulary"
-            df = await pd.read_sql_query(sql_query, conn)
-            await conn.close()
+            sql_query = "SELECT word, definition, embedding FROM vocabulary"
+            async with conn.execute(sql_query) as cursor:
+                rows = await cursor.fetchall()
+                columns = [description[0] for description in cursor.description]
+                df = pd.DataFrame(rows, columns=columns)
+                # await conn.close()
 
     # convert embedding string representation to numpy array
     df["embedding"] = df["embedding"].apply(lambda x: np.array(json.loads(x)))
@@ -628,8 +631,12 @@ async def setup_puzzle(state: PuzzleState) -> PuzzleState:
                 )
                 """
             )
-            await df.to_sql("vocabulary", conn, if_exists="replace", index=False)
-            await conn.close()
+            await conn.executemany(
+                "INSERT INTO vocabulary (word, definition, embedding) VALUES (?, ?, ?)",
+                df.values.tolist(),
+            )
+            await conn.commit()
+            # await conn.close()
 
     logger.info("Exiting setup_puzzle:")
     logger.debug(f"\nExiting setup_puzzle State: {pp.pformat(state)}")
@@ -1102,7 +1109,7 @@ async def main():
     parser.add_argument(
         "--num_puzzles",
         type=int,
-        default=1,
+        default=3,
         help="Number of puzzles to run",
     )
 
