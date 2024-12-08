@@ -19,6 +19,8 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics.pairwise import cosine_similarity
 
+import weave
+
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -63,6 +65,7 @@ class PuzzleState(TypedDict):
     puzzle_source_fp: Optional[str] = None
 
 
+@weave.op()
 def chat_with_llm(prompt, model="gpt-4o", temperature=0.7, max_tokens=4096):
     """
     Interact with a language model (LLM) using a given prompt.
@@ -90,6 +93,7 @@ def chat_with_llm(prompt, model="gpt-4o", temperature=0.7, max_tokens=4096):
     return result
 
 
+@weave.op()
 async def apply_recommendation(state: PuzzleState) -> PuzzleState:
     """
     Apply the recommendation to the current puzzle state and update the state accordingly.
@@ -310,6 +314,7 @@ SYSTEM_MESSAGE_LLM = SystemMessage(
 )
 
 
+@weave.op()
 def ask_llm_for_solution(prompt, model="gpt-4o", temperature=1.0, max_tokens=4096):
     """
     Asks a language model (LLM) for a solution based on the provided prompt.
@@ -367,6 +372,7 @@ WORKFLOW_SPECIFICATION = """
 """
 
 
+@weave.op()
 def run_planner(state: PuzzleState) -> PuzzleState:
     """
     Executes the planning logic for the given puzzle state.
@@ -416,6 +422,7 @@ def run_planner(state: PuzzleState) -> PuzzleState:
     return state
 
 
+@weave.op()
 def determine_next_action(state: PuzzleState) -> str:
     """
     Determines the next action to take based on the given puzzle state.
@@ -452,6 +459,7 @@ HUMAN_MESSAGE_BASE = """
     """
 
 
+@weave.op()
 def get_llm_recommendation(state: PuzzleState) -> PuzzleState:
     """
     Generates a recommendation for the next move in a puzzle using a language model (LLM).
@@ -550,6 +558,7 @@ def get_llm_recommendation(state: PuzzleState) -> PuzzleState:
     return state
 
 
+@weave.op()
 async def get_embedvec_recommendation(state: PuzzleState) -> PuzzleState:
     """
     Asynchronously generates a recommendation for embedding vectors based on the given puzzle state.
@@ -828,6 +837,7 @@ class RecommendedGroup:
         return f"Recommended Group: {self.words}\nConnection Description: {self.connection_description}"
 
 
+@weave.op()
 async def setup_puzzle(state: PuzzleState) -> PuzzleState:
     """
     Asynchronously sets up the puzzle state by initializing various parameters, generating vocabulary and embeddings,
@@ -935,6 +945,7 @@ example:
 )
 
 
+@weave.op()
 async def generate_vocabulary(words, model="gpt-4o", temperature=0.7, max_tokens=4096):
     """
     Asynchronously generates a vocabulary dictionary for a list of words using the GPT-4o model.
@@ -971,6 +982,7 @@ async def generate_vocabulary(words, model="gpt-4o", temperature=0.7, max_tokens
     return vocabulary
 
 
+@weave.op()
 def generate_embeddings(definitions, model="text-embedding-3-small"):
     """
     Generate embeddings for a list of definitions using a specified embedding model.
@@ -1006,6 +1018,7 @@ PLANNER_SYSTEM_MESSAGE = """
 """
 
 
+@weave.op()
 def ask_llm_for_next_step(
     instructions, puzzle_state, model="gpt-3.5-turbo", temperature=0, max_tokens=4096
 ):
@@ -1094,6 +1107,7 @@ def choose_embedvec_item(candidates, model="gpt-4o", temperature=0.7, max_tokens
     return json.loads(result.content)
 
 
+@weave.op()
 def get_candidate_words(df: pd.DataFrame) -> list:
     """
     Generate a list of candidate word groups based on cosine similarity of their embeddings.
@@ -1187,6 +1201,7 @@ Steps:
 """
 
 
+@weave.op()
 def one_away_analyzer(
     state: PuzzleState, one_away_group: List[str], words_remaining: List[str]
 ) -> List[Tuple[str, List[str]]]:
@@ -1272,6 +1287,7 @@ def one_away_analyzer(
     return one_away_group_recommendation
 
 
+@weave.op()
 async def run_agentic_solver(words, solution):
     """
     Runs the agentic solver to solve a puzzle using a state graph workflow.
