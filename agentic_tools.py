@@ -64,6 +64,18 @@ class PuzzleState(TypedDict):
 
 
 def chat_with_llm(prompt, model="gpt-4o", temperature=0.7, max_tokens=4096):
+    """
+    Interact with a language model (LLM) using a given prompt.
+
+    Args:
+        prompt (str): The input text to be sent to the language model.
+        model (str, optional): The model to use for generating responses. Defaults to "gpt-4o".
+        temperature (float, optional): The sampling temperature to use. Higher values mean more random completions. Defaults to 0.7.
+        max_tokens (int, optional): The maximum number of tokens to generate in the response. Defaults to 4096.
+
+    Returns:
+        dict: The response from the language model in JSON format.
+    """
 
     # Initialize the OpenAI LLM with your API key and specify the GPT-4o model
     llm = ChatOpenAI(
@@ -79,6 +91,37 @@ def chat_with_llm(prompt, model="gpt-4o", temperature=0.7, max_tokens=4096):
 
 
 async def apply_recommendation(state: PuzzleState) -> PuzzleState:
+    """
+    Apply the recommendation to the current puzzle state and update the state accordingly.
+
+    Args:
+        state (PuzzleState): The current state of the puzzle.
+
+    Returns:
+        PuzzleState: The updated state of the puzzle after applying the recommendation.
+
+    The function performs the following steps:
+    1. Logs the entry into the function and the current state.
+    2. Increments the recommendation count.
+    3. Retrieves the user response from the puzzle checker.
+    4. Processes the result of the user response:
+        - If the response is "correct":
+            - Logs and prints the correct recommendation.
+            - If the current tool is "embedvec_recommender", removes the accepted words from the vocabulary database.
+            - Removes the recommended words from the remaining words.
+            - Updates the state to reflect the correct recommendation.
+        - If the response is "one_away" or "incorrect":
+            - Logs and prints the incorrect recommendation.
+            - Updates the state to reflect the incorrect recommendation.
+            - If the mistake count is less than the maximum allowed errors, performs additional analysis for "one_away" responses.
+            - If the mistake count exceeds the maximum allowed errors, resets the recommendation state.
+    5. Checks if the puzzle is completed or if the maximum allowed errors are reached, and updates the state accordingly.
+    6. Logs the exit from the function and the updated state.
+
+    Note:
+        - The function uses asynchronous database operations with aiosqlite.
+        - The function handles different tools for recommendations, such as "embedvec_recommender" and "llm_recommender".
+    """
     logger.info("Entering apply_recommendation:")
     logger.debug(f"\nEntering apply_recommendation State: {pp.pformat(state)}")
 
@@ -269,15 +312,16 @@ SYSTEM_MESSAGE_LLM = SystemMessage(
 
 def ask_llm_for_solution(prompt, model="gpt-4o", temperature=1.0, max_tokens=4096):
     """
-    Asks the OpenAI LLM for a solution based on the provided prompt.
+    Asks a language model (LLM) for a solution based on the provided prompt.
 
-    Parameters:
-    prompt (str): The input prompt to be sent to the LLM.
-    temperature (float, optional): The sampling temperature to use. Defaults to 1.0.
-    max_tokens (int, optional): The maximum number of tokens to generate. Defaults to 4096.
+    Args:
+        prompt (str): The input prompt to be sent to the LLM.
+        model (str, optional): The model to be used for generating the response. Defaults to "gpt-4o".
+        temperature (float, optional): The sampling temperature to use. Higher values mean more random completions. Defaults to 1.0.
+        max_tokens (int, optional): The maximum number of tokens to generate in the response. Defaults to 4096.
 
     Returns:
-    dict: The response from the LLM in JSON format.
+        response: The response from the LLM.
     """
     logger.info("Entering ask_llm_for_solution")
     logger.debug(f"Entering ask_llm_for_solution Prompt: {prompt.content}")
@@ -324,6 +368,20 @@ WORKFLOW_SPECIFICATION = """
 
 
 def run_planner(state: PuzzleState) -> PuzzleState:
+    """
+    Executes the planning logic for the given puzzle state.
+
+    This function logs the entry and exit points, processes the workflow instructions,
+    converts the state to a JSON string, wraps it in a human message, and queries the
+    language model for the next action. The resulting action is then used to update
+    the state.
+
+    Args:
+        state (PuzzleState): The current state of the puzzle.
+
+    Returns:
+        PuzzleState: The updated state after processing the next action.
+    """
     logger.info("Entering run_planner:")
     logger.debug(f"\nEntering run_planner State: {pp.pformat(state)}")
 
@@ -359,6 +417,23 @@ def run_planner(state: PuzzleState) -> PuzzleState:
 
 
 def determine_next_action(state: PuzzleState) -> str:
+    """
+    Determines the next action to take based on the given puzzle state.
+
+    Args:
+        state (PuzzleState): The current state of the puzzle, which includes the tool to use.
+
+    Returns:
+        str: The next action to take, which could be a specific tool or an end signal.
+
+    Raises:
+        ValueError: If the tool to use is "ABORT", indicating that the process should be aborted.
+
+    Notes:
+        - Logs the entry into the function and the current state for debugging purposes.
+        - If the tool to use is "END", it returns a predefined END signal.
+        - Otherwise, it returns the tool specified in the state.
+    """
     logger.info("Entering determine_next_action:")
     logger.debug(f"\nEntering determine_next_action State: {pp.pformat(state)}")
 
@@ -378,6 +453,29 @@ HUMAN_MESSAGE_BASE = """
 
 
 def get_llm_recommendation(state: PuzzleState) -> PuzzleState:
+    """
+    Generates a recommendation for the next move in a puzzle using a language model (LLM).
+
+    Args:
+        state (PuzzleState): The current state of the puzzle, including information about found words, mistakes, and remaining words.
+
+    Returns:
+        PuzzleState: The updated state of the puzzle with the recommended words and connection.
+
+    The function performs the following steps:
+    1. Logs the entry into the function and the current state.
+    2. Sets the current tool to "llm_recommender" and prints the current tool status.
+    3. Constructs a prompt for the LLM based on the remaining words.
+    4. Attempts to get a valid recommendation from the LLM, retrying up to a defined limit.
+    5. If a valid recommendation is obtained, updates the state with the recommended words and connection.
+    6. If no valid recommendation is obtained after the retry limit, switches to manual recommendation mode.
+    7. Logs the exit from the function and the updated state.
+
+    Note:
+        - The function uses a retry mechanism to handle invalid recommendations.
+        - The state is updated with the recommended words and connection if a valid recommendation is obtained.
+        - If the retry limit is exceeded, the tool status is changed to "manual_recommendation".
+    """
     logger.info("Entering get_recommendation")
     logger.debug(f"Entering get_recommendation State: {pp.pformat(state)}")
 
@@ -453,6 +551,26 @@ def get_llm_recommendation(state: PuzzleState) -> PuzzleState:
 
 
 async def get_embedvec_recommendation(state: PuzzleState) -> PuzzleState:
+    """
+    Asynchronously generates a recommendation for embedding vectors based on the given puzzle state.
+
+    This function connects to a vocabulary database, retrieves a list of words with their embeddings,
+    and processes them to generate a list of candidate words. It then validates the top candidates
+    using a language model and updates the puzzle state with the recommended words and connection.
+
+    Args:
+        state (PuzzleState): The current state of the puzzle, containing necessary information such as
+                             database file path, found count, and mistake count.
+
+    Returns:
+        PuzzleState: The updated puzzle state with the recommended words and connection.
+
+    Raises:
+        Exception: If there is an issue with database connection or data processing.
+
+    Logging:
+        Logs entry and exit points, as well as debug information about the state and recommendations.
+    """
     logger.info("Entering get_embedvec_recommendation")
     logger.debug(f"Entering get_embedvec_recommendation State: {pp.pformat(state)}")
 
@@ -497,6 +615,22 @@ async def get_embedvec_recommendation(state: PuzzleState) -> PuzzleState:
 
 
 def configure_logging(log_level):
+    """
+    Configures the logging settings for the application.
+
+    Args:
+        log_level (str): The logging level to set. This should be a string
+                         representing the logging level (e.g., 'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL').
+
+    Raises:
+        ValueError: If the provided log_level is not a valid logging level.
+
+    The logging configuration includes:
+        - Setting the logging level.
+        - Defining the log format.
+        - Logging to a file named 'app.log'.
+        - Optionally, logging to the console (commented out by default).
+    """
     # get numeric value of log level
     numeric_level = getattr(logging, log_level.upper(), None)
     if not isinstance(numeric_level, int):
@@ -514,12 +648,51 @@ def configure_logging(log_level):
 
 
 def compute_group_id(word_group: list) -> str:
+    """
+    Computes a unique group ID for a list of words.
+
+    This function takes a list of words, sorts them, concatenates them into a single string,
+    and then generates an MD5 hash of that string. The resulting hash is returned as the group ID.
+
+    Args:
+        word_group (list): A list of words for which to compute the group ID.
+
+    Returns:
+        str: The MD5 hash of the concatenated and sorted words, representing the group ID.
+    """
     return hashlib.md5("".join(sorted(word_group)).encode()).hexdigest()
 
 
 # used by the embedvec tool to store the candidate groups
 @dataclass
 class ConnectionGroup:
+    """
+    A class to represent a group of connections with associated metrics and identifiers.
+
+    Attributes:
+        group_metric (float): Average cosine similarity of all combinations of words in the group.
+        root_word (str): Root word of the group.
+        candidate_pairs (list): List of candidate words with their definitions.
+        group_id (Optional[str]): Checksum identifier for the group.
+
+    Methods:
+        add_entry(word, connection):
+            Adds a word and its connection to the candidate pairs if the group is not full.
+            Raises ValueError if the group is full.
+
+        get_candidate_words():
+            Returns a list of candidate words sorted alphabetically.
+
+        get_candidate_connections():
+            Returns a list of candidate connections with the part of speech tag stripped.
+
+        __repr__():
+            Returns a string representation of the ConnectionGroup instance.
+
+        __eq__(other):
+            Determines if the group is equal to another group based on candidate words.
+    """
+
     group_metric: float = field(
         default=0.0,
         metadata={
@@ -536,6 +709,20 @@ class ConnectionGroup:
     )
 
     def add_entry(self, word, connection):
+        """
+        Adds a new entry to the candidate pairs list.
+
+        Args:
+            word (str): The word to be added.
+            connection (Any): The connection associated with the word.
+
+        Raises:
+            ValueError: If the group already contains 4 entries.
+
+        Notes:
+            If the addition of the new entry results in the candidate pairs list
+            reaching a length of 4, the group ID is computed using the candidate words.
+        """
         if len(self.candidate_pairs) < 4:
             self.candidate_pairs.append((word, connection))
             if len(self.candidate_pairs) == 4:
@@ -544,10 +731,31 @@ class ConnectionGroup:
             raise ValueError("Group is full, cannot add more entries")
 
     def get_candidate_words(self):
+        """
+        Retrieves candidate words from the candidate pairs.
+
+        This method sorts the candidate pairs based on the first element of each pair
+        and returns a list of the first elements from the sorted pairs.
+
+        Returns:
+            list: A list of candidate words sorted by the first element of each pair.
+        """
         sorted_pairs = sorted(self.candidate_pairs, key=lambda x: x[0])
         return [x[0] for x in sorted_pairs]
 
     def get_candidate_connections(self):
+        """
+        Retrieve and process candidate connections.
+
+        This method sorts the candidate pairs based on the first element of each pair.
+        It then processes the second element of each pair by stripping the part of speech
+        tag at the beginning of the connection (e.g., "noun:", "verb:"). If a colon is
+        present, it takes the substring after the first colon and strips any leading or
+        trailing whitespace. If no colon is present, it leaves the connection as is.
+
+        Returns:
+            list: A list of processed candidate connections with part of speech tags removed.
+        """
         sorted_pairs = sorted(self.candidate_pairs, key=lambda x: x[0])
 
         # strip the part of speech tag at the beginning of the connection, which looks like "noun:" or "verb:" etc.
@@ -559,6 +767,13 @@ class ConnectionGroup:
         return stripped_connections
 
     def __repr__(self):
+        """
+        Returns a string representation of the object, including the group metric,
+        root word, group ID, candidate group words, and candidate connections.
+
+        Returns:
+            str: A formatted string representation of the object.
+        """
         return_string = f"group metric: {self.group_metric}, "
         return_string += f"root word: {self.root_word}, group id: {self.group_id}\n"
         return_string += f"candidate group: {self.get_candidate_words()}\n"
@@ -569,19 +784,71 @@ class ConnectionGroup:
 
     # method to determine if the group is equal to another group
     def __eq__(self, other):
+        """
+        Compare two objects for equality based on their candidate words.
+
+        Args:
+            other (object): The object to compare with.
+
+        Returns:
+            bool: True if the sets of candidate words from both objects are equal, False otherwise.
+        """
         return set(self.get_candidate_words()) == set(other.get_candidate_words())
 
 
 @dataclass
 class RecommendedGroup:
+    """
+    A class to represent a recommended group of words with a connection description.
+
+    Attributes:
+    ----------
+    words : List[str]
+        A list of words that form the recommended group.
+    connection_description : str
+        A description of the connection between the words in the recommended group.
+
+    Methods:
+    -------
+    __repr__():
+        Returns a string representation of the RecommendedGroup instance.
+    """
+
     words: List[str]
     connection_description: str
 
     def __repr__(self):
+        """
+        Returns a string representation of the object, including the recommended group of words
+        and the connection description.
+
+        Returns:
+            str: A formatted string containing the recommended group of words and the connection description.
+        """
         return f"Recommended Group: {self.words}\nConnection Description: {self.connection_description}"
 
 
 async def setup_puzzle(state: PuzzleState) -> PuzzleState:
+    """
+    Asynchronously sets up the puzzle state by initializing various parameters, generating vocabulary and embeddings,
+    and storing them in a SQLite database.
+
+    Args:
+        state (PuzzleState): The current state of the puzzle.
+
+    Returns:
+        PuzzleState: The updated state of the puzzle.
+
+    Side Effects:
+        - Logs entry and exit points of the function.
+        - Prints status messages to the console.
+        - Initializes various state parameters.
+        - Generates vocabulary and embeddings for the remaining words.
+        - Stores the vocabulary and embeddings in a SQLite database.
+
+    Raises:
+        Any exceptions raised by the asynchronous operations or database interactions.
+    """
     logger.info("Entering setup_puzzle:")
     logger.debug(f"\nEntering setup_puzzle State: {pp.pformat(state)}")
 
@@ -669,6 +936,19 @@ example:
 
 
 async def generate_vocabulary(words, model="gpt-4o", temperature=0.7, max_tokens=4096):
+    """
+    Asynchronously generates a vocabulary dictionary for a list of words using the GPT-4o model.
+
+    Args:
+        words (list of str): A list of words for which to generate vocabulary entries.
+        model (str, optional): The model to use for generating vocabulary. Defaults to "gpt-4o".
+        temperature (float, optional): The temperature to use for the model. Defaults to 0.7.
+        max_tokens (int, optional): The maximum number of tokens to generate. Defaults to 4096.
+
+    Returns:
+        dict: A dictionary where keys are the input words and values are the generated vocabulary entries.
+
+    """
     # Initialize the OpenAI LLM with your API key and specify the GPT-4o model
     llm = ChatOpenAI(
         model=model,
@@ -692,6 +972,16 @@ async def generate_vocabulary(words, model="gpt-4o", temperature=0.7, max_tokens
 
 
 def generate_embeddings(definitions, model="text-embedding-3-small"):
+    """
+    Generate embeddings for a list of definitions using a specified embedding model.
+
+    Args:
+        definitions (list of str): A list of text definitions to be embedded.
+        model (str, optional): The name of the embedding model to use. Defaults to "text-embedding-3-small".
+
+    Returns:
+        list of list of float: A list of embeddings, where each embedding is a list of floats.
+    """
 
     # setup embedding model
     embed_model = OpenAIEmbeddings(model=model)
@@ -900,6 +1190,20 @@ Steps:
 def one_away_analyzer(
     state: PuzzleState, one_away_group: List[str], words_remaining: List[str]
 ) -> List[Tuple[str, List[str]]]:
+    """
+    Analyzes a group of words that are one step away from being a valid group and
+    attempts to find a single-topic group among them. If found, it recommends a
+    new group by adding one more word to the selected single-topic group.
+
+    Args:
+        state (PuzzleState): The current state of the puzzle, including found and mistake counts.
+        one_away_group (List[str]): A list of words that are one step away from being a valid group.
+        words_remaining (List[str]): A list of words remaining to be tested.
+
+    Returns:
+        List[Tuple[str, List[str]]]: A recommended group of words that form a single topic,
+        along with a description of the connection, or None if no such group is found.
+    """
     print("\nENTERED ONE-AWAY ANALYZER")
     print(
         f"found count: {state['found_count']}, mistake_count: {state['mistake_count']}"
@@ -969,6 +1273,21 @@ def one_away_analyzer(
 
 
 async def run_agentic_solver(words, solution):
+    """
+    Runs the agentic solver to solve a puzzle using a state graph workflow.
+
+    Args:
+        words (list): A list of words to be used in the puzzle.
+        solution (dict): A dictionary containing the solution groups and their reasons.
+
+    Returns:
+        list: A list of correct recommendation groups found during the workflow execution.
+
+    The function sets up a state graph workflow with various nodes and edges to solve the puzzle.
+    It uses a temporary database to store the puzzle state and runs the workflow in an asynchronous
+    manner. The workflow involves setting up the puzzle, getting recommendations, applying them,
+    and checking the solutions. The function returns all the correct recommendation groups found.
+    """
     # result = workflow_graph.invoke(initial_state, runtime_config)
 
     workflow = StateGraph(PuzzleState)
