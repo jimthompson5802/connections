@@ -47,9 +47,7 @@ class AgenticModel(weave.Model):
 
     @weave.op()
     async def predict(self, words, solution):
-        solver_output = []
-        async for item in await run_agentic_solver(words, solution):
-            solver_output.append(item)
+        solver_output = await run_agentic_solver(words, solution)
         return solver_output
 
 

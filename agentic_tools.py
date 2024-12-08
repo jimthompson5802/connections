@@ -602,7 +602,7 @@ async def setup_puzzle(state: PuzzleState) -> PuzzleState:
 
     # generate vocabulary for the words
     print("\nGenerating vocabulary for the words...this may take about a minute")
-    vocabulary = generate_vocabulary(state["words_remaining"])
+    vocabulary = await generate_vocabulary(state["words_remaining"])
 
     # Convert dictionary to DataFrame
     rows = []
@@ -668,8 +668,7 @@ example:
 )
 
 
-def generate_vocabulary(words, model="gpt-4o", temperature=0.7, max_tokens=4096):
-
+async def generate_vocabulary(words, model="gpt-4o", temperature=0.7, max_tokens=4096):
     # Initialize the OpenAI LLM with your API key and specify the GPT-4o model
     llm = ChatOpenAI(
         model=model,
@@ -680,12 +679,14 @@ def generate_vocabulary(words, model="gpt-4o", temperature=0.7, max_tokens=4096)
 
     vocabulary = {}
 
-    for the_word in words:
+    async def process_word(the_word):
         prompt = f"\n\ngiven word: {the_word}"
         prompt = HumanMessage(prompt)
         prompt = [SYSTEM_MESSAGE_VOCAB, prompt]
-        result = llm.invoke(prompt)
+        result = await llm.ainvoke(prompt)
         vocabulary[the_word] = json.loads(result.content)[the_word]
+
+    await asyncio.gather(*[process_word(word) for word in words])
 
     return vocabulary
 
@@ -1109,7 +1110,7 @@ async def main():
     parser.add_argument(
         "--num_puzzles",
         type=int,
-        default=3,
+        default=2,
         help="Number of puzzles to run",
     )
 
